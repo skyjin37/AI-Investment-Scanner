@@ -1,5 +1,7 @@
 import pandas as pd
 import yfinance as yf
+import os
+from datetime import datetime
 
 
 def calculate_rsi(close_prices, period=14):
@@ -27,13 +29,9 @@ def calculate_ichimoku(hist):
     high = hist["High"]
     low = hist["Low"]
 
-    # 전환선: 최근 9일 고가/저가 평균
     tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
-    # 기준선: 최근 26일 고가/저가 평균
     kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
-    # 선행스팬1: (전환선+기준선)/2, 26일 앞으로 이동
     senkou_a = ((tenkan + kijun) / 2).shift(26)
-    # 선행스팬2: 최근 52일 고가/저가 평균, 26일 앞으로 이동
     senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
 
     return tenkan, kijun, senkou_a, senkou_b
@@ -42,10 +40,17 @@ def calculate_ichimoku(hist):
 df = pd.read_excel("data/watchlist.xlsx")
 
 results = []
+output_lines = []  # 출력할 내용을 담아뒀다가 파일로도 저장
 
-print("=" * 60)
-print("오늘의 관심종목 종합 분석")
-print("=" * 60)
+def log(text=""):
+    """화면에도 출력하고, 파일 저장용 리스트에도 담아두는 함수"""
+    print(text)
+    output_lines.append(text)
+
+
+log("=" * 60)
+log("오늘의 관심종목 종합 분석")
+log("=" * 60)
 
 for _, row in df.iterrows():
     name = row["종목명"]
@@ -90,7 +95,6 @@ for _, row in df.iterrows():
     else:
         rsi_flag = "보통"
 
-    # ---- MACD ----
     macd, signal_line = calculate_macd(hist["Close"])
     macd_today, signal_today = macd.iloc[-1], signal_line.iloc[-1]
     macd_yesterday, signal_yesterday = macd.iloc[-2], signal_line.iloc[-2]
@@ -102,7 +106,6 @@ for _, row in df.iterrows():
     else:
         macd_flag = "🔴 하락 국면 (MACD<Signal)"
 
-    # ---- 일목균형표 ----
     tenkan, kijun, senkou_a, senkou_b = calculate_ichimoku(hist)
     cloud_top = max(senkou_a.iloc[-1], senkou_b.iloc[-1])
     cloud_bottom = min(senkou_a.iloc[-1], senkou_b.iloc[-1])
@@ -114,7 +117,6 @@ for _, row in df.iterrows():
     else:
         cloud_flag = "☁️ 구름 안 (혼조)"
 
-    # ---- 점수 계산 ----
     score = 0
     if gap >= -3:
         score += 20
@@ -140,22 +142,32 @@ for _, row in df.iterrows():
         "점수": score,
     })
 
-    print(f"[{sector}] {name} ({ticker})")
-    print(f"   현재가: {price:,.2f}  |  52주 최고가: {high_52w:,.2f}  |  고점대비: {gap:+.2f}%  {flag}")
-    print(f"   MA20: {ma20:,.2f}  |  MA60: {ma60:,.2f}  |  MA120: {ma120:,.2f}  |  {arrangement}")
-    print(f"   거래량: {volume_flag}")
-    print(f"   RSI(14): {rsi:.1f}  {rsi_flag}")
-    print(f"   MACD: {macd_flag}")
-    print(f"   일목균형표: {cloud_flag}")
-    print(f"   👉 종합 점수: {score}점")
-    print("-" * 60)
+    log(f"[{sector}] {name} ({ticker})")
+    log(f"   현재가: {price:,.2f}  |  52주 최고가: {high_52w:,.2f}  |  고점대비: {gap:+.2f}%  {flag}")
+    log(f"   MA20: {ma20:,.2f}  |  MA60: {ma60:,.2f}  |  MA120: {ma120:,.2f}  |  {arrangement}")
+    log(f"   거래량: {volume_flag}")
+    log(f"   RSI(14): {rsi:.1f}  {rsi_flag}")
+    log(f"   MACD: {macd_flag}")
+    log(f"   일목균형표: {cloud_flag}")
+    log(f"   👉 종합 점수: {score}점")
+    log("-" * 60)
 
-print("=" * 60)
+log("=" * 60)
 
 result_df = pd.DataFrame(results).sort_values("점수", ascending=False)
 
-print("\n📊 오늘의 관심종목 랭킹 (점수 높은 순)")
-print("=" * 60)
+log("\n📊 오늘의 관심종목 랭킹 (점수 높은 순)")
+log("=" * 60)
 for i, r in enumerate(result_df.itertuples(), start=1):
-    print(f"{i}위. {r.종목명} ({r.티커})  -  {r.점수}점  [{r.섹터}]")
-print("=" * 60)
+    log(f"{i}위. {r.종목명} ({r.티커})  -  {r.점수}점  [{r.섹터}]")
+log("=" * 60)
+
+# ---- 파일로 저장 ----
+os.makedirs("reports", exist_ok=True)
+today = datetime.now().strftime("%Y-%m-%d")
+filepath = f"reports/report_{today}.txt"
+
+with open(filepath, "w", encoding="utf-8") as f:
+    f.write("\n".join(output_lines))
+
+print(f"\n✅ 리포트 저장 완료: {filepath}")
