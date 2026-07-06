@@ -15,9 +15,33 @@ def calculate_rsi(close_prices, period=14):
     return rsi
 
 
+def calculate_macd(close_prices, short=12, long=26, signal=9):
+    ema_short = close_prices.ewm(span=short, adjust=False).mean()
+    ema_long = close_prices.ewm(span=long, adjust=False).mean()
+    macd = ema_short - ema_long
+    signal_line = macd.ewm(span=signal, adjust=False).mean()
+    return macd, signal_line
+
+
+def calculate_ichimoku(hist):
+    high = hist["High"]
+    low = hist["Low"]
+
+    # 전환선: 최근 9일 고가/저가 평균
+    tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
+    # 기준선: 최근 26일 고가/저가 평균
+    kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
+    # 선행스팬1: (전환선+기준선)/2, 26일 앞으로 이동
+    senkou_a = ((tenkan + kijun) / 2).shift(26)
+    # 선행스팬2: 최근 52일 고가/저가 평균, 26일 앞으로 이동
+    senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+
+    return tenkan, kijun, senkou_a, senkou_b
+
+
 df = pd.read_excel("data/watchlist.xlsx")
 
-results = []  # 종목별 결과를 담아둘 리스트
+results = []
 
 print("=" * 60)
 print("오늘의 관심종목 종합 분석")
@@ -66,25 +90,54 @@ for _, row in df.iterrows():
     else:
         rsi_flag = "보통"
 
+    # ---- MACD ----
+    macd, signal_line = calculate_macd(hist["Close"])
+    macd_today, signal_today = macd.iloc[-1], signal_line.iloc[-1]
+    macd_yesterday, signal_yesterday = macd.iloc[-2], signal_line.iloc[-2]
+
+    if macd_yesterday <= signal_yesterday and macd_today > signal_today:
+        macd_flag = "✨ 골든크로스 발생"
+    elif macd_today > signal_today:
+        macd_flag = "🟢 상승 국면 (MACD>Signal)"
+    else:
+        macd_flag = "🔴 하락 국면 (MACD<Signal)"
+
+    # ---- 일목균형표 ----
+    tenkan, kijun, senkou_a, senkou_b = calculate_ichimoku(hist)
+    cloud_top = max(senkou_a.iloc[-1], senkou_b.iloc[-1])
+    cloud_bottom = min(senkou_a.iloc[-1], senkou_b.iloc[-1])
+
+    if price > cloud_top:
+        cloud_flag = "☀️ 구름 위 (상승추세)"
+    elif price < cloud_bottom:
+        cloud_flag = "🌧️ 구름 아래 (하락추세)"
+    else:
+        cloud_flag = "☁️ 구름 안 (혼조)"
+
     # ---- 점수 계산 ----
     score = 0
     if gap >= -3:
-        score += 30              # 52주 신고가 근접
+        score += 20
     if arrangement == "✅ 정배열":
-        score += 25              # 이동평균선 정배열
+        score += 20
     if volume_ratio >= 2:
-        score += 20              # 거래량 급증
+        score += 15
     elif volume_ratio >= 1.5:
-        score += 10              # 거래량 증가
+        score += 8
     if 40 <= rsi <= 60:
-        score += 15              # RSI 안정 구간 (추세 초입 가능성)
+        score += 10
     elif rsi <= 30:
-        score += 10              # 과매도(반등 기대)
+        score += 8
+    if macd_flag == "✨ 골든크로스 발생":
+        score += 15
+    elif macd_flag == "🟢 상승 국면 (MACD>Signal)":
+        score += 8
+    if cloud_flag == "☀️ 구름 위 (상승추세)":
+        score += 12
 
     results.append({
         "종목명": name, "티커": ticker, "섹터": sector,
-        "현재가": price, "고점대비": gap, "정배열": arrangement,
-        "거래량": volume_flag, "RSI": rsi, "점수": score,
+        "점수": score,
     })
 
     print(f"[{sector}] {name} ({ticker})")
@@ -92,12 +145,13 @@ for _, row in df.iterrows():
     print(f"   MA20: {ma20:,.2f}  |  MA60: {ma60:,.2f}  |  MA120: {ma120:,.2f}  |  {arrangement}")
     print(f"   거래량: {volume_flag}")
     print(f"   RSI(14): {rsi:.1f}  {rsi_flag}")
+    print(f"   MACD: {macd_flag}")
+    print(f"   일목균형표: {cloud_flag}")
     print(f"   👉 종합 점수: {score}점")
     print("-" * 60)
 
 print("=" * 60)
 
-# ---- 점수순 랭킹 출력 ----
 result_df = pd.DataFrame(results).sort_values("점수", ascending=False)
 
 print("\n📊 오늘의 관심종목 랭킹 (점수 높은 순)")
