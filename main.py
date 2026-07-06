@@ -1,10 +1,24 @@
 import pandas as pd
 import yfinance as yf
 
+
+def calculate_rsi(close_prices, period=14):
+    delta = close_prices.diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
 df = pd.read_excel("data/watchlist.xlsx")
 
 print("=" * 60)
-print("오늘의 관심종목 현재가 + 52주 신고가 + 이동평균선 + 거래량")
+print("오늘의 관심종목 종합 분석 (현재가/52주/이평선/거래량/RSI)")
 print("=" * 60)
 
 for _, row in df.iterrows():
@@ -42,10 +56,19 @@ for _, row in df.iterrows():
     else:
         volume_flag = f"평상시 ({volume_ratio:.1f}배)"
 
+    rsi = calculate_rsi(hist["Close"]).iloc[-1]
+    if rsi >= 70:
+        rsi_flag = "⚠️ 과매수"
+    elif rsi <= 30:
+        rsi_flag = "💡 과매도"
+    else:
+        rsi_flag = "보통"
+
     print(f"[{sector}] {name} ({ticker})")
     print(f"   현재가: {price:,.2f}  |  52주 최고가: {high_52w:,.2f}  |  고점대비: {gap:+.2f}%  {flag}")
     print(f"   MA20: {ma20:,.2f}  |  MA60: {ma60:,.2f}  |  MA120: {ma120:,.2f}  |  {arrangement}")
     print(f"   거래량: {volume_flag}")
+    print(f"   RSI(14): {rsi:.1f}  {rsi_flag}")
     print("-" * 60)
 
 print("=" * 60)
